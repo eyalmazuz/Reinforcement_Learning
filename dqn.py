@@ -24,6 +24,29 @@ UPDATE_EVERY = 10
 
 Transition = namedtuple('Transition', ['state', 'action', 'reward', 'next_state', 'done'])
 
+
+class DQN(Model):
+
+    def __init__(self, n_states, n_actions, n_layers):
+        super(DQN, self).__init__()
+
+        if n_layers == 3:
+            self.dense_layers = [Dense(units=units, activation='relu') for units in [64, 64, 16]]
+        
+        elif n_layers == 5:
+            self.dense_layers = [Dense(units=units, activation='relu') for units in [64, 64, 32, 32, 16]]
+
+        self.action_values = Dense(n_actions, activation='linear')
+
+    def call(self, x):
+
+        for layer in self.dense_layers:
+            x = layer(x)
+
+        q_values = self.action_values(x)
+
+        return q_values
+
 class MemoryReplay():
 
     def __init__(self, size, batch_size):
@@ -82,42 +105,54 @@ def q_learning(env, q_network, target_network, learning_rate,
             action = sample_action(Q_values, epsilon)
             next_state, reward, done, _ = env.step(action)
             
-            env.render()
+            # env.render()
             total_reward += reward
             replay_buffer.add(state, action, reward, next_state, done)
 
-            transitions = replay_buffer.sample()
-            if not transitions:
-                continue
+            state = next_state
 
-            batch = Transition(*zip(*transitions))
-            state_batch = np.array(batch.state)
-            action_batch = np.array(batch.action)
-            reward_batch = np.array(batch.reward)
-            next_state_batch = np.array(batch.next_state)
-            done_batch = np.array(batch.done)
+        transitions = replay_buffer.sample()
+        if not transitions:
+            continue
 
-            next_state_q_values = target_network.predict(next_state_batch)
+        batch = Transition(*zip(*transitions))
+        state_batch = np.array(batch.state)
+        action_batch = np.array(batch.action)
+        reward_batch = np.array(batch.reward)
+        next_state_batch = np.array(batch.next_state)
+        done_batch = np.array(batch.done)
 
-            next_state_action_values = next_state_q_values.max(axis=-1)
-            action_values_rewards = np.zeros(state_batch.shape[0])
-            action_values_rewards += reward_batch
-            action_values_rewards += discount_factor * (np.logical_not(done_batch)) * next_state_action_values
-            
-            state_action_values = q_network.predict(state_batch)
-            state_action_values[np.arange(state_action_values.shape[0]), action_batch] = action_values_rewards
-            
-            print(action_values_rewards.shape)
-            history = q_network.fit(state_batch, state_action_values, verbose=0)
-            loss = history.history['loss'][0]
-            losses.append(loss)
+        state_q_values = q_network.predict(state_batch)
+        next_state_q_values = target_network.predict(next_state_batch)
 
-            if (episode + 1) % update_every == 0:
-                target_network.set_weights(q_network.get_weights())
+        for i in range(state_q_values.shape[0]):
+            if done_batch[i]:
+                state_q_values[i, action_batch[i]] = reward_batch[i]
+            else:
+                state_q_values[i, action_batch[i]] = reward_batch[i] + discount_factor * next_state_q_values[i].max()
 
-        if losses:
-            print(f'Episode: {episode + 1} Loss: {sum(losses) / len(losses)} Reward: {sum(rewards) / len(rewards)}')
+        # state_q_values[np.arange(state_q_values.shape[0]), action_batch] = reward_batch + (np.logical_not(done_batch)) * np.amax(next_state_action_values, axis=-1)
+
+        # next_state_action_values = next_state_q_values.max(axis=-1)
+        # action_values_rewards = np.zeros(state_batch.shape[0])
+        # action_values_rewards += reward_batch
+        # action_values_rewards += discount_factor * (np.logical_not(done_batch)) * next_state_action_values
+        
+        # state_action_values = q_network.predict(state_batch)
+        # state_action_values[np.arange(state_action_values.shape[0]), action_batch] = action_values_rewards
+        
+        history = q_network.fit(state_batch, state_q_values, batch_size=64, verbose=0)
+        loss = history.history['loss'][0]
+        losses.append(loss)
+
+        if (episode + 1) % update_every == 0:
+            target_network.set_weights(q_network.get_weights())
+
         rewards.append(total_reward)
+        if losses:
+            print(f'Episode: {episode + 1} Loss: {losses[-1]} Reward: {total_reward}')
+        
+        
 
         if sum(rewards[-100:]) / 100 > 475.0:
             break
@@ -127,8 +162,10 @@ def q_learning(env, q_network, target_network, learning_rate,
 def main():
     env = gym.make('CartPole-v1')
 
-    q_network = build_model(env.observation_space.shape[0], env.action_space.n, 3)
-    target_network = build_model(env.observation_space.shape[0], env.action_space.n, 3)
+    q_network = DQN(env.observation_space.shape[0], env.action_space.n, 3)
+    target_network = DQN(env.observation_space.shape[0], env.action_space.n, 3)
+
+    q_network.compile('Adam', 'MSE')
 
     target_network.set_weights(q_network.get_weights())
 
