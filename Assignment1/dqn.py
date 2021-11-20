@@ -1,4 +1,5 @@
 from collections import deque, namedtuple
+from datetime import datetime
 from itertools import count
 import random
 
@@ -6,7 +7,7 @@ import gym
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.lib.function_base import gradient
-from tqdm import trange
+from tqdm import trange, tqdm
 plt.rcParams["figure.figsize"] = (20, 10)
 
 import os
@@ -15,14 +16,27 @@ import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.layers import Dense, Input
 
-LEARNING_RATE = 0.1
+LEARNING_RATE = 0.001
 DISCOUNT_FACTOR = 1
 EPSILON_START = 0.9
 EPSILON_END = 0.1
 DECAY_RATE = 200
 UPDATE_EVERY = 10
 
+CUR_DATE = str(datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
+
 Transition = namedtuple('Transition', ['state', 'action', 'reward', 'next_state', 'done'])
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        # Currently, memory growth needs to be the same across GPUs
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logical_gpus = tf.config.list_logical_devices('GPU')
+        print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+    except RuntimeError as e:
+        # Memory growth must be set before GPUs have been initialized
+        print(e)
 
 
 class DQN(Model):
@@ -31,7 +45,7 @@ class DQN(Model):
         super(DQN, self).__init__()
 
         if n_layers == 3:
-            self.dense_layers = [Dense(units=units, activation='relu') for units in [64, 64, 16]]
+            self.dense_layers = [Dense(units=units, activation='relu') for units in [512, 256, 64]]
         
         elif n_layers == 5:
             self.dense_layers = [Dense(units=units, activation='relu') for units in [64, 64, 32, 32, 16]]
@@ -95,10 +109,11 @@ def q_learning(env, q_network, target_network, learning_rate,
 
     rewards = []
     losses = []
-    for episode in count():
+    for episode in (t := tqdm(count(), leave=False)):
         state, done = env.reset(), False
         epsilon = epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1.0 * episode / decay_rate)
         total_reward = 0
+        episode_loss = []
         while not done:
             Q_values = q_network.predict(state.reshape(1, -1))
 
@@ -129,7 +144,7 @@ def q_learning(env, q_network, target_network, learning_rate,
             if done_batch[i]:
                 state_q_values[i, action_batch[i]] = reward_batch[i]
             else:
-                state_q_values[i, action_batch[i]] = reward_batch[i] + discount_factor * next_state_q_values[i].max()
+               state_q_values[i, action_batch[i]] = reward_batch[i] + discount_factor * next_state_q_values[i].max()
 
         # state_q_values[np.arange(state_q_values.shape[0]), action_batch] = reward_batch + (np.logical_not(done_batch)) * np.amax(next_state_action_values, axis=-1)
 
@@ -143,49 +158,55 @@ def q_learning(env, q_network, target_network, learning_rate,
         
         history = q_network.fit(state_batch, state_q_values, batch_size=64, verbose=0)
         loss = history.history['loss'][0]
-        losses.append(loss)
+        episode_loss.append(loss)
 
         if (episode + 1) % update_every == 0:
             target_network.set_weights(q_network.get_weights())
-
+            
+        if episode_loss:
+            avg_loss = sum(episode_loss) / len(episode_loss)
+            losses.append(avg_loss)
+        
         rewards.append(total_reward)
         if losses:
-            print(f'Episode: {episode + 1} Loss: {losses[-1]} Reward: {total_reward}')
+        #    print(f'Episode: {episode + 1} Loss: {losses[-1]} Reward: {total_reward}')
         
+            t.set_description(f'Reward: {total_reward} Loss: {losses[-1]}')
         
-
         if sum(rewards[-100:]) / 100 > 475.0:
             break
 
-    return rewards
+    return rewards, losses
 
 def main():
     env = gym.make('CartPole-v1')
 
     q_network = DQN(env.observation_space.shape[0], env.action_space.n, 3)
     target_network = DQN(env.observation_space.shape[0], env.action_space.n, 3)
-
+    
     q_network.compile('Adam', 'MSE')
 
     target_network.set_weights(q_network.get_weights())
 
-    rewards = q_learning(env, q_network, target_network, LEARNING_RATE, DISCOUNT_FACTOR,
+    rewards, losses = q_learning(env, q_network, target_network, LEARNING_RATE, DISCOUNT_FACTOR,
                                 EPSILON_START, EPSILON_END, DECAY_RATE, UPDATE_EVERY)
 
     
-    plt.plot(range(5000), rewards)
+    plt.plot(range(len(rewards)), rewards)
     plt.xlabel('episodes')
     plt.ylabel('reward')
     plt.title(f'Reward per episode')
 
-    plt.savefig('./rewards.png', )
+    plt.savefig(f'./dqn_rewards_{CUR_DATE}.png', )
     plt.clf()
+
+    # losses = [loss for sublist in losses for loss in sublist]
     
-    # plt.plot(range(50), np.array(steps).reshape(-1, 100).mean(axis=1))
-    # plt.xlabel('episodes')
-    # plt.ylabel('steps')
-    # plt.title(f'average steps per 100 episodes')
-    # plt.savefig('./steps.png')
+    plt.plot(range(len(losses)), losses)
+    plt.xlabel('steps')
+    plt.ylabel('loss')
+    plt.title(f'loss per step')
+    plt.savefig(f'./dqn_steps_{CUR_DATE}.png')
 
 if __name__ == "__main__":
     main()

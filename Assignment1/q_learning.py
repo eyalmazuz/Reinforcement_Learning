@@ -66,14 +66,14 @@ def main():
     plt.ylabel('reward')
     plt.title(f'Reward per episode')
 
-    plt.savefig('./rewards.png', )
+    plt.savefig('./q_learning_rewards.png', )
     plt.clf()
     
     plt.plot(range(50), np.array(steps).reshape(-1, 100).mean(axis=1))
     plt.xlabel('episodes')
     plt.ylabel('steps')
     plt.title(f'average steps per 100 episodes')
-    plt.savefig('./steps.png')
+    plt.savefig('./q_learning_steps.png')
 
     print(Q.argmax(1).reshape(4, 4))
     print(sum(rewards))
