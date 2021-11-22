@@ -20,6 +20,7 @@ EPSILON_START = 0.9
 EPSILON_END = 0.1
 DECAY_RATE = 200
 UPDATE_EVERY = 10
+NUM_LAYERS = 3
 
 CUR_DATE = str(datetime.now().strftime("%Y_%m_%d_%H_%M_%S"))
 
@@ -153,8 +154,8 @@ def q_learning(env, q_network, target_network, learning_rate,
 def main():
     env = gym.make('CartPole-v1')
 
-    q_network = DQN(env.observation_space.shape[0], env.action_space.n, 3)
-    target_network = DQN(env.observation_space.shape[0], env.action_space.n, 3)
+    q_network = DQN(env.observation_space.shape[0], env.action_space.n, NUM_LAYERS)
+    target_network = DQN(env.observation_space.shape[0], env.action_space.n, NUM_LAYERS)
     
     q_network.compile('Adam', 'MSE')
 
