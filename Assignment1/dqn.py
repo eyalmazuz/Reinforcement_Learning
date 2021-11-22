@@ -6,8 +6,6 @@ import random
 import gym
 import numpy as np
 import matplotlib.pyplot as plt
-from numpy.lib.function_base import gradient
-from tqdm import trange, tqdm
 plt.rcParams["figure.figsize"] = (20, 10)
 
 import os
@@ -79,20 +77,6 @@ class MemoryReplay():
     def add(self, *args):
         self.memory.append(Transition(*args))
 
-def build_model(n_states, n_actions, n_layers):
-    inputs = Input(shape=(4, ))
-
-    x = inputs
-    for _ in range(n_layers):
-        x = Dense(64, activation='relu')(x)
-
-    output = Dense(n_actions, activation=None)(x)
-
-    model = Model(inputs=inputs, outputs=output)
-    model.compile('SGD', 'MSE',)
-
-    return model
-
 def sample_action(Q_values, epsilon):
     if np.random.rand() < epsilon:
         action = np.random.randint(Q_values.shape[-1])
@@ -109,7 +93,7 @@ def q_learning(env, q_network, target_network, learning_rate,
 
     rewards = []
     losses = []
-    for episode in (t := tqdm(count(), leave=False)):
+    for episode in count():
         state, done = env.reset(), False
         epsilon = epsilon_end + (epsilon_start - epsilon_end) * np.exp(-1.0 * episode / decay_rate)
         total_reward = 0
@@ -145,16 +129,6 @@ def q_learning(env, q_network, target_network, learning_rate,
                 state_q_values[i, action_batch[i]] = reward_batch[i]
             else:
                state_q_values[i, action_batch[i]] = reward_batch[i] + discount_factor * next_state_q_values[i].max()
-
-        # state_q_values[np.arange(state_q_values.shape[0]), action_batch] = reward_batch + (np.logical_not(done_batch)) * np.amax(next_state_action_values, axis=-1)
-
-        # next_state_action_values = next_state_q_values.max(axis=-1)
-        # action_values_rewards = np.zeros(state_batch.shape[0])
-        # action_values_rewards += reward_batch
-        # action_values_rewards += discount_factor * (np.logical_not(done_batch)) * next_state_action_values
-        
-        # state_action_values = q_network.predict(state_batch)
-        # state_action_values[np.arange(state_action_values.shape[0]), action_batch] = action_values_rewards
         
         history = q_network.fit(state_batch, state_q_values, batch_size=64, verbose=0)
         loss = history.history['loss'][0]
@@ -169,9 +143,7 @@ def q_learning(env, q_network, target_network, learning_rate,
         
         rewards.append(total_reward)
         if losses:
-        #    print(f'Episode: {episode + 1} Loss: {losses[-1]} Reward: {total_reward}')
-        
-            t.set_description(f'Reward: {total_reward} Loss: {losses[-1]}')
+            print(f'Episode: {episode + 1} Loss: {losses[-1]} Reward: {total_reward}')
         
         if sum(rewards[-100:]) / 100 > 475.0:
             break
@@ -199,8 +171,6 @@ def main():
 
     plt.savefig(f'./dqn_rewards_{CUR_DATE}.png', )
     plt.clf()
-
-    # losses = [loss for sublist in losses for loss in sublist]
     
     plt.plot(range(len(losses)), losses)
     plt.xlabel('steps')
