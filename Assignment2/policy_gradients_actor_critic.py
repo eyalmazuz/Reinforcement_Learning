@@ -23,6 +23,7 @@ class PolicyNetwork:
             self.action = tf.placeholder(tf.int32, [self.action_size], name="action")
             self.R_t = tf.placeholder(tf.float32, name="total_rewards")
 
+            # Policy Computation
             self.W1 = tf.get_variable("W1", [self.state_size, 12], initializer=tf.keras.initializers.glorot_normal(seed=0))
             self.b1 = tf.get_variable("b1", [12], initializer=tf.zeros_initializer())
             self.W2 = tf.get_variable("W2", [12, self.action_size], initializer=tf.keras.initializers.glorot_normal(seed=0))
@@ -30,14 +31,32 @@ class PolicyNetwork:
 
             self.Z1 = tf.add(tf.matmul(self.state, self.W1), self.b1)
             self.A1 = tf.nn.relu(self.Z1)
-            self.output = tf.add(tf.matmul(self.A1, self.W2), self.b2)
-
+            self.output_policy = tf.add(tf.matmul(self.A1, self.W2), self.b2)
+            
+            #Value Function Computation
+            self.W1_v = tf.get_variable("W1_v", [self.state_size, 32], initializer=tf.keras.initializers.glorot_normal(seed=0))
+            self.b1_v = tf.get_variable("b1_v", [32], initializer=tf.zeros_initializer())
+            self.W2_v = tf.get_variable("W2_v", [32, 1], initializer=tf.keras.initializers.glorot_normal(seed=0))
+            self.b2_v = tf.get_variable("b2_v", [1], initializer=tf.zeros_initializer())
+            
+            self.Z1_v = tf.add(tf.matmul(self.state, self.W1_v), self.b1_v)
+            self.A1_v = tf.nn.relu(self.Z1_v)
+            self.output_value = tf.add(tf.matmul(self.A1_v, self.W2_v), self.b2_v)
+            
             # Softmax probability distribution over actions
-            self.actions_distribution = tf.squeeze(tf.nn.softmax(self.output))
+            self.actions_distribution = tf.squeeze(tf.nn.softmax(self.output_policy))
+            
+            self.delta = (self.R_t - self.output_value)
+            self.value_loss = tf.squeeze(self.delta)
+            
             # Loss with negative log probability
-            self.neg_log_prob = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.output, labels=self.action)
-            self.loss = tf.reduce_mean(self.neg_log_prob * self.R_t)
-            self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.loss)
+            self.neg_log_prob = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.output_policy, labels=self.action)
+            self.policy_loss = tf.reduce_mean(self.neg_log_prob * (self.R_t - tf.stop_gradient(self.output_value)))
+            self.policy_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.policy_loss)
+            
+            #Compute loss for value function
+            self.value_optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate).minimize(self.delta ** 2)
+            
 
 
 # Define hyperparameters
@@ -59,7 +78,7 @@ policy = PolicyNetwork(state_size, action_size, learning_rate)
 # Start training the agent with REINFORCE algorithm
 with tf.Session() as sess:
     
-    summary_writer = tf.summary.FileWriter('./logs/', sess.graph)
+    summary_writer = tf.summary.FileWriter('./baseline_logs/', sess.graph)
 
     sess.run(tf.global_variables_initializer())
     solved = False
@@ -76,7 +95,8 @@ with tf.Session() as sess:
     average_reward_tensor = tf.placeholder(tf.float32, name="average_reward_tensor")
     average_reward_summary = tf.summary.scalar(name='average reward', tensor=average_reward_tensor)
     
-    loss_summary = tf.summary.scalar(name='loss', tensor=policy.loss)
+    policy_loss_summary = tf.summary.scalar(name='policy loss', tensor=policy.policy_loss)
+    value_loss_summary = tf.summary.scalar(name='value loss', tensor=policy.value_loss)
     
     for episode in range(max_episodes):
         state = env.reset()
@@ -128,5 +148,7 @@ with tf.Session() as sess:
         for t, transition in enumerate(episode_transitions):
             total_discounted_return = sum(discount_factor ** i * t.reward for i, t in enumerate(episode_transitions[t:])) # Rt
             feed_dict = {policy.state: transition.state, policy.R_t: total_discounted_return, policy.action: transition.action}
-            _, loss, summary = sess.run([policy.optimizer, policy.loss, loss_summary], feed_dict)
-            summary_writer.add_summary(summary, episode)
+            _, _, loss, policy_summary, value_summary = sess.run([policy.policy_optimizer, policy.value_optimizer,
+                                            policy.policy_loss, policy_loss_summary, value_loss_summary], feed_dict)
+            summary_writer.add_summary(policy_summary, episode)
+            summary_writer.add_summary(value_summary, episode)
