@@ -130,4 +130,3 @@ dmypy.json
 
 /Assignment2/*logs/
 events.out.*
-*.h5
