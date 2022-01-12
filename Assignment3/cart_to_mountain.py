@@ -1,7 +1,7 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-from utils import mask_action, pad_state, write_summary, save_model, normalize_env
+from utils import mask_action, pad_state, write_summary, save_model, normalize_env, reset_weights
 from model import ActorCritic
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
@@ -11,6 +11,7 @@ import gym
 import numpy as np
 np.seterr('ignore')
 
+TRANSFER = 'CartPole-v1'
 ENV_NAME = 'MountainCarContinuous-v0'
 INPUT_SHAPE = 6
 OUTPUT_SHAPE = 3
@@ -92,29 +93,33 @@ def train(env, model, actor_optimizer, critic_optimizer, n_episodes, gamma, logd
         write_summary(summary_writer, results, episode)
 
         if average_reward > previous_average_reward and (episode) % SAVE_EVERY == 0:
-            save_model(model.actor, f'./weights/{ENV_NAME}/actor_episode_{episode}_{average_reward}.h5')
-            save_model(model.critic, f'./weights/{ENV_NAME}/critic_episode_{episode}_{average_reward}.h5')
+            save_model(model.actor, f'./weights/{TRANSFER}_{ENV_NAME}/actor_episode_{episode}_{average_reward}.h5')
+            save_model(model.critic, f'./weights/{TRANSFER}_{ENV_NAME}/critic_episode_{episode}_{average_reward}.h5')
 
         previous_average_reward = average_reward
 
         print(f'Episode: {episode + 1}, Reward: {rewards[episode]} Average reward: {average_reward}')
 
         if average_reward > 70.0:
-            save_model(model.actor, f'./weights/{ENV_NAME}/actor_episode_{episode}_{average_reward}.h5')
-            save_model(model.critic, f'./weights/{ENV_NAME}/critic_episode_{episode}_{average_reward}.h5')
+            save_model(model.actor, f'./weights/{TRANSFER}_{ENV_NAME}/actor_episode_{episode}_{average_reward}.h5')
+            save_model(model.critic, f'./weights/{TRANSFER}_{ENV_NAME}/critic_episode_{episode}_{average_reward}.h5')
             return
 
 
 env = gym.make(f'{ENV_NAME}')
-
 
 model = ActorCritic(INPUT_SHAPE, OUTPUT_SHAPE, 12)
 
 actor_optimizer = Adam(learning_rate=5e-4)
 critic_optimizer = Adam(learning_rate=1e-2)
 
-# model.actor.build(input_shape=(None, 4))
-train(env, model, actor_optimizer, critic_optimizer, 1000, 1.0, f'{ENV_NAME}')
-model.actor.save_weights('./weights.h5')
+model.actor.build((None, INPUT_SHAPE))
+model.critic.build((None, INPUT_SHAPE))
 
-model.actor.load_weights('./weights.h5')
+model.actor.load_weights(f'./weights/{TRANSFER}/actor.h5')
+model.critic.load_weights(f'./weights/{TRANSFER}/critic.h5')
+
+reset_weights(model.actor.logits)
+reset_weights(model.critic.logits)
+
+train(env, model, actor_optimizer, critic_optimizer, 1000, 1.0, f'{TRANSFER}_{ENV_NAME}')

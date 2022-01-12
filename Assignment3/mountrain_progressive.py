@@ -1,26 +1,20 @@
 import os
-
-from numpy.lib.function_base import average
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-from utils import mask_action, pad_state, save_model, write_summary
+from utils import mask_action, pad_state, write_summary, save_model
 from model import ActorCritic
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
-
 import tensorboard
 import gym
 import numpy as np
 
-ENV_NAME = 'Acrobot-v1'
+ENV_NAME = 'CartPole-v1'
 INPUT_SHAPE = 6
 OUTPUT_SHAPE = 3
 SAVE_EVERY = 50
-MAX_STEPS = 3000
 
 def train(env, model, actor_optimizer, critic_optimizer, n_episodes, gamma, logdir):
-
-    # env._max_episode_steps = MAX_STEPS
     summary_writer = tf.summary.create_file_writer(f'./Logs/{logdir}/')
 
     rewards = np.zeros((n_episodes, ))
@@ -32,6 +26,7 @@ def train(env, model, actor_optimizer, critic_optimizer, n_episodes, gamma, logd
             with tf.GradientTape() as actor_tape, tf.GradientTape() as critic_tape:
 
                 state = pad_state(state, INPUT_SHAPE)
+
                 value, actions = model(state[None, ...])
 
                 actions = mask_action(actions, OUTPUT_SHAPE, env.action_space.n, is_mc=False)
@@ -42,9 +37,6 @@ def train(env, model, actor_optimizer, critic_optimizer, n_episodes, gamma, logd
                 
                 rewards[episode] += reward
                 
-                if reward != -1:
-                    reward = 1000
-
                 next_state = pad_state(next_state, INPUT_SHAPE)
                 next_state_value, _ = model(next_state[None, ...])
 
@@ -75,27 +67,28 @@ def train(env, model, actor_optimizer, critic_optimizer, n_episodes, gamma, logd
         }
         write_summary(summary_writer, results, episode)
 
-        print(f'Episode: {episode + 1}, Reward: {rewards[episode]} Average reward: {average_reward}')
-
         if average_reward > previous_average_reward and (episode) % SAVE_EVERY == 0:
-            print('saving model')
             save_model(model.actor, f'./weights/{ENV_NAME}/actor_episode_{episode}_{average_reward}.h5')
             save_model(model.critic, f'./weights/{ENV_NAME}/critic_episode_{episode}_{average_reward}.h5')
 
         previous_average_reward = average_reward
 
-        if average_reward > -90 and episode >= 100:
-            save_model(model.actor, f'./weights/{ENV_NAME}/actor_episode_{episode}_{average_reward}.h5')
-            save_model(model.critic, f'./weights/{ENV_NAME}/critic_episode_{episode}_{average_reward}.h5')
+        print(f'Episode: {episode + 1}, Reward: {rewards[episode]} Average reward: {average_reward}')
 
+        if np.mean(rewards[(episode - 99):episode+1]) > 475.0:
             return
 
 
 env = gym.make(f'{ENV_NAME}')
+
 
 model = ActorCritic(INPUT_SHAPE, OUTPUT_SHAPE, 12)
 
 actor_optimizer = Adam(learning_rate=5e-4)
 critic_optimizer = Adam(learning_rate=1e-2)
 
+# model.actor.build(input_shape=(None, 4))
 train(env, model, actor_optimizer, critic_optimizer, 1000, 1.0, f'{ENV_NAME}')
+model.actor.save_weights('./weights.h5')
+
+model.actor.load_weights('./weights.h5')

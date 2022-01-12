@@ -1,5 +1,7 @@
 import numpy as np
 import tensorflow as tf
+from sklearn.preprocessing import StandardScaler
+from tensorflow.python.ops.summary_ops_v2 import scalar
 
 def pad_state(state, input_shape):
     if state.shape[0] < input_shape:
@@ -30,3 +32,10 @@ def load_model(model, path):
 
 def reset_weights(layer):
     layer.kernel.assign(layer.kernel_initializer(tf.shape(layer.kernel)))
+
+def normalize_env(env, input_shape):
+    scaler = StandardScaler()
+    states = np.array([pad_state(env.observation_space.sample(), input_shape) for _ in range(10000)])
+    scaler = scaler.fit(states)
+
+    return scaler
